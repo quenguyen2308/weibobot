@@ -46,6 +46,7 @@ def extract_weibo_id(url: str) -> str | None:
         if m:
             return m.group(1)
     return None
+
 async def get_best_url(pid: str) -> tuple[str, int]:
     """Thử các size, trả về (url_lớn_nhất, size_bytes)"""
     sizes = ["orj1080", "mw2000", "orj480", "large", "orj360"]
@@ -114,6 +115,14 @@ async def get_raw_images(url: str) -> tuple[list[str], list[str], list[int]]:
             traceback.print_exc()
 
     return thumb_urls, raw_urls, raw_sizes
+
+def get_filename_from_url(url: str) -> str:
+    """Lấy tên file gốc từ URL sinaimg"""
+    # URL dạng: https://wx2.sinaimg.cn/orj1080/008fk9Edly1ie2udj0hzxj313d1y01ky.jpg
+    match = re.search(r"/([^/]+\.(?:jpg|jpeg|png|gif|webp))$", url, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return "weibo_image.jpg"
 
 async def download_image(url: str) -> bytes | None:
     async with httpx.AsyncClient(headers=HEADERS_IMG, follow_redirects=True) as client:
@@ -201,6 +210,24 @@ async def show_preview(update: Update, url: str):
 
 # ─── CALLBACK ─────────────────────────────────────────────────────────────────
 
+async def send_image_smart(message, data: bytes, filename: str, caption: str = ""):
+    """Dưới 10MB → send_photo (vào Gallery), trên 10MB → send_document (file)"""
+    MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB
+
+    if len(data) <= MAX_PHOTO_SIZE:
+        await message.reply_photo(
+            photo=io.BytesIO(data),
+            caption=caption,
+            parse_mode="Markdown"
+        )
+    else:
+        await message.reply_document(
+            document=io.BytesIO(data),
+            filename=filename,
+            caption=f"⚠️ Ảnh > 10MB, gửi dạng file\n{caption}",
+            parse_mode="Markdown"
+        )
+
 async def send_as_file(message, data: bytes, filename: str, caption: str = ""):
     """Gửi ảnh dạng file document — tải về máy trực tiếp, không giới hạn 10MB"""
     await message.reply_document(
@@ -232,10 +259,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         success = 0
         for i, (img_bytes, size) in enumerate(zip(all_bytes, sizes)):
             if img_bytes:
-                await send_as_file(
+                await send_image_smart(
                     query.message,
                     img_bytes,
-                    filename=f"weibo_{i+1:03d}.jpg",
+                    filename=get_filename_from_url(images[i]),
                     caption=f"#{i+1} — {format_size(size)}"
                 )
                 success += 1
@@ -252,10 +279,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"⬇️ Đang tải ảnh #{idx+1}...")
         img_bytes = await download_image(images[idx])
         if img_bytes:
-            await send_as_file(
+            await send_image_smart(
                 query.message,
                 img_bytes,
-                filename=f"weibo_{idx+1:03d}.jpg",
+                filename=get_filename_from_url(images[idx]),
                 caption=f"#{idx+1} — {format_size(sizes[idx])}\n`{images[idx]}`"
             )
         else:
