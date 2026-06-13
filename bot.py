@@ -259,7 +259,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         success = 0
         for i, (img_bytes, size) in enumerate(zip(all_bytes, sizes)):
             if img_bytes:
-                await send_image_smart(
+                await send_as_file(
                     query.message,
                     img_bytes,
                     filename=get_filename_from_url(images[i]),
@@ -279,7 +279,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"⬇️ Đang tải ảnh #{idx+1}...")
         img_bytes = await download_image(images[idx])
         if img_bytes:
-            await send_image_smart(
+            await send_as_file(
                 query.message,
                 img_bytes,
                 filename=get_filename_from_url(images[idx]),
