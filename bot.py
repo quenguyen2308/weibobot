@@ -201,6 +201,15 @@ async def show_preview(update: Update, url: str):
 
 # ─── CALLBACK ─────────────────────────────────────────────────────────────────
 
+async def send_as_file(message, data: bytes, filename: str, caption: str = ""):
+    """Gửi ảnh dạng file document — tải về máy trực tiếp, không giới hạn 10MB"""
+    await message.reply_document(
+        document=io.BytesIO(data),
+        filename=filename,
+        caption=caption,
+        parse_mode="Markdown"
+    )
+
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -217,24 +226,22 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     sizes = session["sizes"]
 
     if data == "dl_all":
-        await query.message.reply_text(f"⬇️ Đang tải {len(images)} ảnh raw...")
+        await query.message.reply_text(f"⬇️ Đang tải {len(images)} ảnh...")
 
         all_bytes = await asyncio.gather(*[download_image(u) for u in images])
-        media_data = [(i, b) for i, b in enumerate(all_bytes) if b]
-
-        chunks = [media_data[i:i+10] for i in range(0, len(media_data), 10)]
-        for chunk in chunks:
-            media_group = [
-                InputMediaPhoto(
-                    media=io.BytesIO(b),
-                    caption=f"{len(media_data)} ảnh" if idx == 0 else None
+        success = 0
+        for i, (img_bytes, size) in enumerate(zip(all_bytes, sizes)):
+            if img_bytes:
+                await send_as_file(
+                    query.message,
+                    img_bytes,
+                    filename=f"weibo_{i+1:03d}.jpg",
+                    caption=f"#{i+1} — {format_size(size)}"
                 )
-                for idx, (i, b) in enumerate(chunk)
-            ]
-            await query.message.reply_media_group(media=media_group)
-            await asyncio.sleep(1)
+                success += 1
+                await asyncio.sleep(0.5)
 
-        await query.message.reply_text(f"✅ Hoàn tất: {len(media_data)}/{len(images)} ảnh")
+        await query.message.reply_text(f"✅ Hoàn tất: {success}/{len(images)} ảnh")
 
     elif data.startswith("dl_one_"):
         idx = int(data.replace("dl_one_", ""))
@@ -243,12 +250,13 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
         await query.message.reply_text(f"⬇️ Đang tải ảnh #{idx+1}...")
-        b = await download_image(images[idx])
-        if b:
-            await query.message.reply_photo(
-                photo=io.BytesIO(b),
-                caption=f"#{idx+1} — {format_size(sizes[idx])}\n`{images[idx]}`",
-                parse_mode="Markdown"
+        img_bytes = await download_image(images[idx])
+        if img_bytes:
+            await send_as_file(
+                query.message,
+                img_bytes,
+                filename=f"weibo_{idx+1:03d}.jpg",
+                caption=f"#{idx+1} — {format_size(sizes[idx])}\n`{images[idx]}`"
             )
         else:
             await query.message.reply_text(f"❌ Không tải được ảnh #{idx+1}")
