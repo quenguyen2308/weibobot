@@ -69,7 +69,6 @@ async def get_best_url(pid: str) -> tuple[str, int]:
     print(f"[BEST] {best_url.split('/')[3]} → {best_size} bytes")
     return best_url, best_size
 
-
 async def get_raw_images(url: str) -> tuple[list[str], list[str], list[int]]:
     """Trả về (thumb_urls, raw_urls, raw_sizes)"""
     post_id = extract_weibo_id(url)
@@ -155,28 +154,24 @@ async def show_preview(update: Update, url: str):
     chat_id = update.effective_chat.id
     msg = await update.message.reply_text("🔍 Đang scrape...")
 
-    thumb_urls, raw_urls = await get_raw_images(url)
+    thumb_urls, raw_urls, raw_sizes = await get_raw_images(url)
     if not raw_urls:
         await msg.edit_text("❌ Không tìm thấy ảnh nào.")
         return
 
     await msg.edit_text(f"📥 Đang tải preview {len(raw_urls)} ảnh...")
 
-    # Tải thumb + lấy size raw song song
-    thumb_bytes, sizes = await asyncio.gather(
-        asyncio.gather(*[download_image(u) for u in thumb_urls]),
-        asyncio.gather(*[get_image_size(u) for u in raw_urls]),
-    )
+    # Tải thumb song song
+    thumb_bytes = await asyncio.gather(*[download_image(u) for u in thumb_urls])
 
-    # Lưu session
+    # Lưu session — size đã có sẵn, không cần HEAD lần 2
     session_store[chat_id] = {
         "images": raw_urls,
-        "sizes": list(sizes),
+        "sizes": raw_sizes,
     }
 
-    # Gửi album preview bằng thumb
+    # Gửi album preview
     await msg.edit_text(f"🖼 {len(raw_urls)} ảnh — chọn để tải:")
-
     valid_thumbs = [(i, b) for i, b in enumerate(thumb_bytes) if b]
     chunks = [valid_thumbs[i:i+10] for i in range(0, len(valid_thumbs), 10)]
     for chunk in chunks:
@@ -192,7 +187,7 @@ async def show_preview(update: Update, url: str):
         )
     ]]
     row = []
-    for i, size in enumerate(sizes):
+    for i, size in enumerate(raw_sizes):
         row.append(InlineKeyboardButton(
             f"#{i+1} {format_size(size)}",
             callback_data=f"dl_one_{i}"
@@ -279,7 +274,7 @@ async def cmd_links(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     url = ctx.args[0]
     msg = await update.message.reply_text("🔍 Đang scrape...")
-    _, raw_urls = await get_raw_images(url)
+    _, raw_urls, raw_sizes = await get_raw_images(url)
 
     if not raw_urls:
         await msg.edit_text("❌ Không tìm thấy ảnh nào.")
