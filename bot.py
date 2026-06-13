@@ -8,6 +8,7 @@ import httpx
 import asyncio
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.request import HTTPXRequest
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
