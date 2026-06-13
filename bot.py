@@ -71,18 +71,22 @@ async def get_raw_images(url: str) -> tuple[list[str], list[str]]:
                 print(json.dumps(pics[0], indent=2, ensure_ascii=False))
 
             for pic in pics:
-                thumb = pic.get("url", "")  # orj360 — nhỏ, dùng làm preview
-            
-                # Lấy URL gốc từ pid — orj1080 là size lớn nhất public
+                thumb = pic.get("url", "")
                 pid = pic.get("pid", "")
+            
                 if pid:
-                    raw = f"https://wx2.sinaimg.cn/orj1080/{pid}.jpg"
+                    # Thử tất cả size, lấy cái có content-length lớn nhất
+                    candidate_sizes = ["orj1080", "orj480", "large", "mw2000", "orj360"]
+                    candidate_urls = [f"https://wx2.sinaimg.cn/{s}/{pid}.jpg" for s in candidate_sizes]
+            
+                    # In ra để debug
+                    print(f"[DEBUG] pid: {pid}")
+                    for u in candidate_urls:
+                        print(f"[DEBUG] candidate: {u}")
+            
+                    raw = candidate_urls[0]  # tạm dùng orj1080
                 else:
-                    # fallback về large nếu không có pid
-                    raw = (
-                        pic.get("large", {}).get("url") or
-                        pic.get("url", "")
-                    )
+                    raw = pic.get("large", {}).get("url") or pic.get("url", "")
 
                 if thumb:
                     thumb_urls.append(thumb)
