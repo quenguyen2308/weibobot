@@ -246,21 +246,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "dl_all":
         await query.message.reply_text(f"⬇️ Đang tải {len(images)} ảnh...")
-
-        all_bytes = await asyncio.gather(*[download_image(u) for u in images])
-        success = 0
-        for i, (img_bytes, size) in enumerate(zip(all_bytes, sizes)):
-            if img_bytes:
-                await send_as_file(
-                    query.message,
-                    img_bytes,
-                    filename=get_filename_from_url(images[i]),
-                    caption=f"#{i+1} — {format_size(size)}"
-                )
-                success += 1
-                await asyncio.sleep(0.5)
-
-        await query.message.reply_text(f"✅ Hoàn tất: {success}/{len(images)} ảnh")
+        await download_and_send_all(query.message, images, sizes)
 
     elif data.startswith("dl_one_"):
         idx = int(data.replace("dl_one_", ""))
@@ -269,13 +255,13 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
         await query.message.reply_text(f"⬇️ Đang tải ảnh #{idx+1}...")
-        img_bytes = await download_image(images[idx])
-        if img_bytes:
+        b = await download_image(images[idx])
+        if b:
             await send_as_file(
                 query.message,
-                img_bytes,
+                b,
                 filename=get_filename_from_url(images[idx]),
-                caption=f"#{idx+1} — {format_size(sizes[idx])}"  # bỏ URL
+                caption=f"#{idx+1} — {format_size(sizes[idx])}"
             )
         else:
             await query.message.reply_text(f"❌ Không tải được ảnh #{idx+1}")
@@ -316,21 +302,8 @@ async def handle_url(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await show_preview(update, text)
 
-async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        await update.message.reply_text("❌ Dùng: /all <weibo_url>")
-        return
-
-    url = ctx.args[0]
-    msg = await update.message.reply_text("⬇️ Đang tải tất cả ảnh...")
-
-    thumb_urls, raw_urls, raw_sizes = await get_raw_images(url)
-    if not raw_urls:
-        await msg.edit_text("❌ Không tìm thấy ảnh nào.")
-        return
-
-    await msg.edit_text(f"📦 Tìm thấy {len(raw_urls)} ảnh, đang tải...")
-
+async def download_and_send_all(message, raw_urls: list, raw_sizes: list):
+    """Tải tất cả ảnh raw và gửi dạng document"""
     all_bytes = await asyncio.gather(*[download_image(u) for u in raw_urls])
 
     valid = [
@@ -339,48 +312,35 @@ async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ]
 
     if not valid:
-        await msg.edit_text("❌ Không tải được ảnh nào.")
+        await message.reply_text("❌ Không tải được ảnh nào.")
         return
 
-    # Gửi theo nhóm 10, thử InputMediaPhoto trước → fallback InputMediaDocument
-    from telegram import InputMediaDocument
-    chunks = [valid[j:j+10] for j in range(0, len(valid), 10)]
+    for i, b, img_url, size in valid:
+        await send_as_file(
+            message,
+            b,
+            filename=get_filename_from_url(img_url),
+            caption=f"#{i+1} — {format_size(size)}"
+        )
+        await asyncio.sleep(0.5)
 
-    for chunk in chunks:
-        # Thử gửi dạng photo album trước
-        try:
-            media_group = [
-                InputMediaPhoto(
-                    media=io.BytesIO(b),
-                    caption=f"#{i+1} — {format_size(size)}" if idx == 0 else None
-                )
-                for idx, (i, b, img_url, size) in enumerate(chunk)
-            ]
-            await update.message.reply_media_group(media=media_group)
-            await asyncio.sleep(0.5)
-            continue  # thành công → chunk tiếp theo
-        except Exception as e:
-            print(f"[PhotoGroup Error] {e} — thử từng ảnh")
+    await message.reply_text(f"✅ Hoàn tất: {len(valid)}/{len(raw_urls)} ảnh")
 
-        # Fallback: thử từng ảnh — photo trước, document nếu fail
-        for i, b, img_url, size in chunk:
-            try:
-                await update.message.reply_photo(
-                    photo=io.BytesIO(b),
-                    caption=f"#{i+1} — {format_size(size)}"
-                )
-            except Exception:
-                await send_as_file(
-                    update.message,
-                    b,
-                    filename=get_filename_from_url(img_url),
-                    caption=f"#{i+1} — {format_size(size)}"
-                )
-            await asyncio.sleep(0.3)
+async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not ctx.args:
+        await update.message.reply_text("❌ Dùng: /all <weibo_url>")
+        return
 
-    await msg.edit_text(
-        f"✅ Hoàn tất: {len(valid)}/{len(raw_urls)} ảnh"
-    )
+    url = ctx.args[0]
+    msg = await update.message.reply_text("⬇️ Đang xử lý...")
+
+    thumb_urls, raw_urls, raw_sizes = await get_raw_images(url)
+    if not raw_urls:
+        await msg.edit_text("❌ Không tìm thấy ảnh nào.")
+        return
+
+    await msg.edit_text(f"📦 Tìm thấy {len(raw_urls)} ảnh, đang tải...")
+    await download_and_send_all(update.message, raw_urls, raw_sizes)
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
