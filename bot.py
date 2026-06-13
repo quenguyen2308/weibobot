@@ -34,61 +34,50 @@ def extract_weibo_id(url: str) -> str | None:
     return None
 
 async def get_raw_images(url: str) -> list[str]:
-    """Scrape tất cả ảnh raw từ 1 bài post Weibo"""
     post_id = extract_weibo_id(url)
     if not post_id:
         return []
 
     image_urls = []
 
-    # Thử API mobile trước (dễ parse nhất)
-    api_url = f"https://m.weibo.cn/detail/{post_id}"
-    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True) as client:
+    # Dùng API mobile chính xác
+    api_url = f"https://m.weibo.cn/statuses/show?id={post_id}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Referer": "https://m.weibo.cn/",
+        "Accept": "application/json, text/plain, */*",
+        "MWeibo-Pwa": "1",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         try:
             resp = await client.get(api_url, timeout=15)
-            html = resp.text
+            data = resp.json()
 
-            # Tìm JSON nhúng trong __wb_data__ hoặc render_data
-            json_match = re.search(
-                r'"pics"\s*:\s*(\[.*?\])', html, re.DOTALL
-            )
-            if json_match:
-                import json
-                pics = json.loads(json_match.group(1))
-                for pic in pics:
-                    # Ưu tiên large > original > url
-                    raw = (
-                        pic.get("large", {}).get("url") or
-                        pic.get("original", {}).get("url") or
-                        pic.get("url", "")
-                    )
-                    if raw:
-                        # Đổi thumbnail → ảnh gốc
-                        raw = re.sub(r"/thumb\d+/", "/large/", raw)
-                        raw = re.sub(r"thumbnail", "large", raw)
-                        image_urls.append(raw)
+            # Ảnh nằm trong data.pics
+            pics = data.get("data", {}).get("pics", [])
 
-            # Fallback: BeautifulSoup parse img tag
-            if not image_urls:
-                soup = BeautifulSoup(html, "html.parser")
-                for img in soup.find_all("img"):
-                    src = img.get("src", "")
-                    if "sinaimg.cn" in src or "weibo.com" in src:
-                        src = re.sub(r"/thumb\d+/", "/large/", src)
-                        src = re.sub(r"orj\d+", "large", src)
-                        image_urls.append(src)
+            for pic in pics:
+                # Ưu tiên large → original → url
+                raw = (
+                    pic.get("large", {}).get("url") or
+                    pic.get("original", {}).get("url") or
+                    pic.get("url", "")
+                )
+                if raw:
+                    # Đổi thumbnail → ảnh gốc
+                    raw = re.sub(r"/thumb\d+/", "/large/", raw)
+                    raw = re.sub(r"orj\d+", "large", raw)
+                    image_urls.append(raw)
+
+            print(f"[Scraper] Tìm thấy {len(image_urls)} ảnh từ API")
 
         except Exception as e:
             print(f"[Scraper Error] {e}")
 
-    # Deduplicate giữ thứ tự
-    seen = set()
-    result = []
-    for u in image_urls:
-        if u not in seen:
-            seen.add(u)
-            result.append(u)
-    return result
+    return image_urls
 
 async def download_image(url: str) -> bytes | None:
     """Tải ảnh về dạng bytes"""
