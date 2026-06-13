@@ -333,7 +333,6 @@ async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     all_bytes = await asyncio.gather(*[download_image(u) for u in raw_urls])
 
-    # Lọc ảnh tải được
     valid = [
         (i, b, raw_urls[i], raw_sizes[i])
         for i, b in enumerate(all_bytes) if b
@@ -343,56 +342,44 @@ async def cmd_all(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("❌ Không tải được ảnh nào.")
         return
 
-    # Phân loại: ảnh ≤10MB và ≤10000px dùng InputMediaPhoto (vào Gallery)
-    # Ảnh lớn hơn gửi riêng dạng document
-    photo_group = []
-    large_files = []
+    # Gửi theo nhóm 10, thử InputMediaPhoto trước → fallback InputMediaDocument
+    from telegram import InputMediaDocument
+    chunks = [valid[j:j+10] for j in range(0, len(valid), 10)]
 
-    for i, b, img_url, size in valid:
-        if size <= 10 * 1024 * 1024:  # ≤10MB → thử gom vào album
-            photo_group.append((i, b, img_url, size))
-        else:
-            large_files.append((i, b, img_url, size))
+    for chunk in chunks:
+        # Thử gửi dạng photo album trước
+        try:
+            media_group = [
+                InputMediaPhoto(
+                    media=io.BytesIO(b),
+                    caption=f"#{i+1} — {format_size(size)}" if idx == 0 else None
+                )
+                for idx, (i, b, img_url, size) in enumerate(chunk)
+            ]
+            await update.message.reply_media_group(media=media_group)
+            await asyncio.sleep(0.5)
+            continue  # thành công → chunk tiếp theo
+        except Exception as e:
+            print(f"[PhotoGroup Error] {e} — thử từng ảnh")
 
-    # Gửi album theo nhóm 10 ảnh
-    if photo_group:
-        chunks = [photo_group[j:j+10] for j in range(0, len(photo_group), 10)]
-        for chunk in chunks:
+        # Fallback: thử từng ảnh — photo trước, document nếu fail
+        for i, b, img_url, size in chunk:
             try:
-                media_group = [
-                    InputMediaPhoto(
-                        media=io.BytesIO(b),
-                        caption=f"#{i+1} — {format_size(size)}" if idx == 0 else None
-                    )
-                    for idx, (i, b, img_url, size) in enumerate(chunk)
-                ]
-                await update.message.reply_media_group(media=media_group)
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                # Nếu album fail (dimension lỗi) → fallback gửi từng file
-                print(f"[MediaGroup Error] {e} — fallback to document")
-                for i, b, img_url, size in chunk:
-                    await send_as_file(
-                        update.message,
-                        b,
-                        filename=get_filename_from_url(img_url),
-                        caption=f"#{i+1} — {format_size(size)}"
-                    )
-                    await asyncio.sleep(0.5)
-
-    # Ảnh >10MB gửi riêng dạng document
-    for i, b, img_url, size in large_files:
-        await send_as_file(
-            update.message,
-            b,
-            filename=get_filename_from_url(img_url),
-            caption=f"#{i+1} — {format_size(size)} (file gốc)"
-        )
-        await asyncio.sleep(0.5)
+                await update.message.reply_photo(
+                    photo=io.BytesIO(b),
+                    caption=f"#{i+1} — {format_size(size)}"
+                )
+            except Exception:
+                await send_as_file(
+                    update.message,
+                    b,
+                    filename=get_filename_from_url(img_url),
+                    caption=f"#{i+1} — {format_size(size)}"
+                )
+            await asyncio.sleep(0.3)
 
     await msg.edit_text(
-        f"✅ Hoàn tất: {len(valid)}/{len(raw_urls)} ảnh\n"
-        f"📸 Album: {len(photo_group)} ảnh — 📁 File: {len(large_files)} ảnh"
+        f"✅ Hoàn tất: {len(valid)}/{len(raw_urls)} ảnh"
     )
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
