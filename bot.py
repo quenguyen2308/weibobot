@@ -351,7 +351,7 @@ def main():
     print(f"Bot chạy webhook tại port {PORT}...")
     app.run_webhook(
         listen="0.0.0.0",
-        port=PORT,
+        PORT = int(os.environ.get("PORT"))  # Railway tự set, thường là 8080
         url_path="/webhook",
         webhook_url=f"{WEBHOOK_URL}/webhook",
         secret_token=os.environ.get("WEBHOOK_SECRET", ""),
